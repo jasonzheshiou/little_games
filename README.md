@@ -17,8 +17,22 @@ Two self-contained browser games. No build step, no dependencies, no network —
 - **Odd one out** — four tiles share an invariant, one breaks it. The invariant is usually arithmetic
   (`sides + glyphs = 7`, `rotation = sides × 15°`), never a colour match.
 
-Scoring punishes hesitation and hints: `base − 25 per wrong tile − 40 per hint + speed bonus`.
+Scoring punishes hesitation and hints: `base − wrongCost per wrong tile − hint cost per hint + speed bonus`.
 Add `?seed=12345` to the URL to replay or share an identical run.
+
+### Difficulty settings
+
+Difficulty is a generator setting, not a score multiplier — it changes how many attributes are in play,
+how subtle a rule may be, how many near-identical tiles you must reject, and what help is available:
+
+| Difficulty | Attributes | Tiles offered | Hints | Speed-bonus window |
+| --- | --- | --- | --- | --- |
+| **Warm-up** | 2–3 | 4–5 | free | 60 s |
+| **Standard** | 2–6 (tuned curve) | 4–6 | −40 | 45 s |
+| **Expert** | 3–6, rotation from level 1 | 5–6 | −60 | 35 s |
+| **Nightmare** | 6 on every board | 6 | disabled | 25 s |
+
+Changing difficulty mid-run starts a new run. The choice is remembered in `localStorage`.
 
 | Level 1–3 (warm-up) | Level 6+ (six interacting attributes) | Odd one out |
 | --- | --- | --- |
@@ -32,18 +46,22 @@ The generator never paints a board it cannot defend. For every board it guarante
 2. no two tiles in the tray look identical,
 3. matrix distractors deviate from the solution in a single attribute,
 4. analogy distractors are real transformation mistakes (no change, half a change, double change),
-5. in odd-one-out boards exactly one tile violates the stated invariant.
+5. in odd-one-out boards exactly one tile violates the stated invariant,
+6. each difficulty really does change the generator configuration (attributes, rule subtlety, tile count,
+   hint policy), not just the score.
 
-Those invariants are machine-checked: 7 200 generated boards (300 seeds × 24 puzzles) plus a scripted
-playthrough of all 24 puzzles in headless Chromium.
+Those invariants are machine-checked: 24 000 generated boards (4 difficulties × 250 seeds × 24 puzzles)
+plus a scripted playthrough of all 24 puzzles in headless Chromium (26 assertions, including the
+difficulty switch mid-run).
 
 ## Run the checks
 
 Both games ship with their own verification scripts (Node only, no dependencies):
 
 ```sh
-# generator invariants — uniqueness, tile distinctness, single-attribute distractors
-node tests/engine.test.mjs iq-reasoning.html 300
+# generator invariants — uniqueness, tile distinctness, single-attribute distractors,
+# and that every difficulty really changes the generator configuration
+node tests/engine.test.mjs iq-reasoning.html 250
 
 # scripted playthrough of all 24 puzzles in headless Chromium (CDP), plus screenshots
 node tests/browser.test.mjs "file://$PWD/iq-reasoning.html" .

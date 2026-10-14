@@ -39,6 +39,17 @@
   header .sub b { color: var(--ink); }
 
   .hud { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
+  .difficulty { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  .diff-label { font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
+  .segment { display: inline-flex; padding: 3px; gap: 3px; background: rgba(148, 163, 184, .14); border: 1px solid rgba(148, 163, 184, .28); border-radius: 999px; }
+  .segment button {
+    padding: 6px 14px; border: 0; background: transparent; color: var(--muted);
+    font-size: 12.5px; font-weight: 700; letter-spacing: .02em;
+  }
+  .segment button[aria-checked="true"] { background: var(--accent); color: #04263a; }
+  .segment button.nightmare[aria-checked="true"] { background: #fb7185; color: #3f0d1a; }
+  .segment button.ghost { background: transparent; }
+  .diff-note { font-size: 12.5px; color: var(--muted); }
   .chip {
     padding: 6px 12px; border-radius: 999px; font-size: 12.5px;
     background: rgba(148, 163, 184, .12); border: 1px solid rgba(148, 163, 184, .28);
@@ -154,13 +165,21 @@
       Expert-tier pattern reasoning. Every board is generated from a hidden rule set, so there is
       <b>exactly one</b> tile that satisfies it — and the wrong tiles differ from the right one in a
       <b>single</b> attribute. Three families: <b>matrix rule induction</b>, <b>figural analogies</b>,
-      and <b>invariant spotting</b>. 8 levels × 3 puzzles. Hints cost points; so does hesitation.
+      and <b>invariant spotting</b>. 8 levels × 3 puzzles across four difficulties. Hints cost points;
+      so does hesitation — and on Nightmare, hints do not exist.
     </p>
   </header>
+
+  <div class="difficulty">
+    <span class="diff-label">Difficulty</span>
+    <div id="difficulty" class="segment" role="radiogroup" aria-label="Difficulty"></div>
+    <span class="diff-note" id="diff-note"></span>
+  </div>
 
   <div class="hud">
     <span class="chip">Level <b id="hud-level">1/8</b></span>
     <span class="chip">Puzzle <b id="hud-index">1/3</b></span>
+    <span class="chip">Difficulty <b id="hud-diff">Standard</b></span>
     <span class="chip">Score <b id="hud-score">0</b></span>
     <span class="chip">Accuracy <b id="hud-acc">—</b></span>
     <span class="chip">Time <b id="hud-time">0:00</b></span>
@@ -210,6 +229,9 @@
         transformation must be applied to C.</li>
       <li><b>Odd one out</b> — four tiles share a hidden invariant; one tile violates it. The invariant is
         usually arithmetic, not visual.</li>
+      <li><b>Difficulty</b> changes what the generator is allowed to do, not just the score. Warm-up plays
+        two or three attributes with blunt rules and free hints; Nightmare always runs all six attributes
+        with the subtlest rules, six near-identical tiles, and no hints at all.</li>
     </ul>
     <p>Keys: <kbd>Tab</kbd> select tile · <kbd>Enter</kbd> place it · <kbd>h</kbd> hint · <kbd>s</kbd> skip ·
       <kbd>n</kbd> next. Add <code>?seed=12345</code> to the URL to replay an identical run.</p>
@@ -371,6 +393,64 @@
     { family: ['matrix', 'odd', 'analogy'], attrs: ['kind', 'count', 'rot', 'fill', 'size', 'extra'], tier: 6, options: 6 },
   ];
 
+  /* ---------------- difficulty settings ----------------
+     Difficulty is not cosmetic: it changes how many attributes are in play,
+     how subtle the generated rules may be (tier), how many near-identical
+     distractors you must reject, and what hints and time pressure cost.     */
+  const ALL_ATTRS = ['kind', 'count', 'rot', 'size', 'fill', 'extra'];
+  const repeatSet = (n, set) => Array.from({ length: n }, () => set.slice());
+
+  const DIFFICULTIES = {
+    warmup: {
+      id: 'warmup', label: 'Warm-up', blurb: 'Two or three attributes, blunt rules, generous clock, free hints.',
+      tiers: [1, 1, 2, 2, 2, 3, 3, 3],
+      attrs: [['kind', 'count'], ['kind', 'count'], ['kind', 'count', 'fill'], ['kind', 'count', 'fill'],
+        ['kind', 'count', 'size'], ['kind', 'count', 'size'], ['kind', 'count', 'rot'], ['kind', 'count', 'rot']],
+      options: [4, 4, 4, 4, 4, 5, 5, 5],
+      base: [60, 15], wrongCost: 15, hintCost: 0, hints: true, timeWindow: 60,
+      ratings: [2000, 2600, 3100, 3500],
+    },
+    standard: {
+      id: 'standard', label: 'Standard', blurb: 'The tuned curve — up to six interacting attributes by level 8.',
+      tiers: [1, 2, 3, 4, 4, 5, 6, 6],
+      attrs: null,                                   // use the tuned LEVELS curve
+      options: [4, 4, 5, 5, 5, 6, 6, 6],
+      base: [80, 20], wrongCost: 25, hintCost: 40, hints: true, timeWindow: 45,
+      ratings: [2600, 3300, 4000, 4500],
+    },
+    expert: {
+      id: 'expert', label: 'Expert', blurb: 'Rotation and fill from board one; six near-identical tiles throughout.',
+      tiers: [3, 4, 4, 5, 5, 6, 6, 6],
+      attrs: [['kind', 'count', 'rot'], ['kind', 'count', 'rot', 'fill'], ['kind', 'count', 'rot', 'size'],
+        ['kind', 'count', 'fill', 'size'], ['kind', 'count', 'rot', 'fill', 'size'], ['kind', 'count', 'rot', 'fill', 'size'],
+        ['kind', 'count', 'rot', 'fill', 'size', 'extra'], ALL_ATTRS],
+      options: [5, 6, 6, 6, 6, 6, 6, 6],
+      base: [110, 25], wrongCost: 40, hintCost: 60, hints: true, timeWindow: 35,
+      ratings: [3300, 4100, 4900, 5500],
+    },
+    nightmare: {
+      id: 'nightmare', label: 'Nightmare', blurb: 'All six attributes on every board, the subtlest rules, no hints.',
+      tiers: [6, 6, 6, 6, 6, 6, 6, 6],
+      attrs: repeatSet(8, ALL_ATTRS),
+      options: [6, 6, 6, 6, 6, 6, 6, 6],
+      base: [140, 30], wrongCost: 60, hintCost: 0, hints: false, timeWindow: 25,
+      ratings: [4000, 4900, 5800, 6500],
+    },
+  };
+  const DIFF_ORDER = ['warmup', 'standard', 'expert', 'nightmare'];
+
+  function configFor(difficulty, level) {
+    const d = DIFFICULTIES[difficulty] || DIFFICULTIES.standard;
+    const i = Math.min(LEVELS.length - 1, Math.max(0, level - 1));
+    const base = LEVELS[i];
+    return {
+      family: base.family,
+      attrs: (d.attrs ? d.attrs[i] : base.attrs).slice(),
+      tier: d.tiers[i],
+      options: d.options[i],
+    };
+  }
+
   const PROMPTS = {
     matrix: 'One panel of the matrix is missing. Exactly one tile obeys every hidden rule that generated the matrix.',
     analogy: 'Panel A transforms into panel B by a hidden rule. Apply the very same rule to C — which tile completes the pair?',
@@ -423,7 +503,8 @@
     const rules = {};
     attrs.forEach((a) => {
       const list = RULES[a].filter((r) => r.t <= cfg.tier);
-      rules[a] = list[int(rng, list.length)];
+      // never leave an active attribute without a rule, even if the tier is too low for its catalogue
+      rules[a] = list.length ? list[int(rng, list.length)] : RULES[a][RULES[a].length - 1];
     });
     const cellAt = (r, c) => {
       const cell = { kind: rules.kind.gen(r, c, ctx), count: rules.count.gen(r, c, ctx), rot: 0, size: ctx.s1, fill: ctx.f1, extra: null };
@@ -579,18 +660,23 @@
   ];
 
   function buildOdd(rng, cfg) {
-    const list = INVARIANTS.filter((i) => i.t <= cfg.tier);
+    const tiered = INVARIANTS.filter((i) => i.t <= cfg.tier);
+    // easy configurations can fall below the easiest invariant: degrade to the mildest ones
+    // instead of failing to produce a board at all.
+    const list = tiered.length ? tiered : INVARIANTS;
     for (const inv of shuffled(rng, list)) {
+      const total = Math.max(5, cfg.options || 5);      // four obeying tiles is the floor
+      const need = total - 1;
       const ok = [];
       const used = new Set();
       let guard = 0;
-      while (ok.length < 4 && guard++ < 400) {
+      while (ok.length < need && guard++ < 600) {
         const cell = randomCell(rng, { poly: true });
         const sig = signature(cell);
         if (!inv.test(cell) || used.has(sig)) continue;
         used.add(sig); ok.push(cell);
       }
-      if (ok.length < 4) continue;
+      if (ok.length < need) continue;
       let broken = null;
       for (const base of shuffled(rng, ok)) {
         for (const mut of shuffled(rng, MUTATIONS)) {
@@ -602,7 +688,7 @@
       }
       if (!broken) continue;
       used.add(signature(broken));
-      const cells = shuffled(rng, ok.slice(0, 4).concat([broken]));
+      const cells = shuffled(rng, ok.slice(0, need).concat([broken]));
       const tiles = cells.map((cell, i) => ({ id: 'T' + i, cell }));
       const answerId = tiles[cells.indexOf(broken)].id;
       return {
@@ -618,11 +704,13 @@
   /* ---------------- public API ---------------- */
   const BUILDERS = { matrix: buildMatrix, analogy: buildAnalogy, odd: buildOdd };
 
-  function generate(level, index, seed) {
-    const cfg = LEVELS[level - 1] || LEVELS[LEVELS.length - 1];
+  function generate(level, index, seed, difficulty) {
+    const diff = DIFFICULTIES[difficulty] ? difficulty : 'standard';
+    const cfg = configFor(diff, level);
     const family = cfg.family[index];
+    const diffSalt = DIFF_ORDER.indexOf(diff) * 15731;
     for (let attempt = 0; attempt < 400; attempt++) {
-      const rng = makeRng(((seed || 1) ^ (level * 7919 + index * 104729 + attempt * 2654435761)) >>> 0);
+      const rng = makeRng(((seed || 1) ^ (level * 7919 + index * 104729 + diffSalt + attempt * 2654435761)) >>> 0);
       const built = BUILDERS[family](rng, cfg);
       if (!built) continue;
       const sigs = built.tiles.map((t) => signature(t.cell));
@@ -633,19 +721,23 @@
         // uniqueness: no distractor may match the rule-determined answer
         if (sigs.indexOf(signature(built.grid[2][2])) !== built.tiles.indexOf(answer)) continue;
       }
-      return Object.assign({ level, index, seed, family, prompt: PROMPTS[family], attempts: 0 }, built);
+      return Object.assign({
+        level, index, seed, family, prompt: PROMPTS[family], attempts: 0,
+        difficulty: diff, attrs: cfg.attrs, tier: cfg.tier, options: cfg.options,
+      }, built);
     }
     return null;
   }
 
   globalThis.IQ = {
-    makeRng, generate, generateRun: (seed) => {
+    makeRng, generate, configFor,
+    generateRun: (seed, difficulty) => {
       const out = [];
-      for (let l = 1; l <= LEVELS.length; l++) for (let i = 0; i < 3; i++) out.push(generate(l, i, seed));
+      for (let l = 1; l <= LEVELS.length; l++) for (let i = 0; i < 3; i++) out.push(generate(l, i, seed, difficulty));
       return out;
     },
     shapePath, signature, describe, normRot, attrKeys,
-    LEVELS, RULES, INVARIANTS, OPS, POLY, SHAPES, SYM, PROMPTS,
+    LEVELS, RULES, INVARIANTS, OPS, POLY, SHAPES, SYM, PROMPTS, DIFFICULTIES, DIFF_ORDER,
   };
 })();
 // [/ENGINE]
@@ -742,7 +834,7 @@
       tileHome = trayRow(p.tiles.length, 512);
     } else {
       const n = p.tiles.length;
-      const step = 144;
+      const step = Math.min(144, 690 / n);
       const x0 = 380 - (step * (n - 1)) / 2;
       tileHome = p.tiles.map((t, i) => ({ x: x0 + i * step, y: 168 }));
       slot = { x: 380, y: 400, w: 150, h: 140 };
@@ -891,20 +983,70 @@
     });
   }
 
+  /* ---------- difficulty settings ---------- */
+  const settings = { difficulty: 'standard' };
+  try {
+    const saved = localStorage.getItem('abstract.difficulty');
+    if (saved && IQ.DIFFICULTIES[saved]) settings.difficulty = saved;
+  } catch (_) { /* storage unavailable (file://, private mode) */ }
+  const storeDifficulty = () => { try { localStorage.setItem('abstract.difficulty', settings.difficulty); } catch (_) { /* ignore */ } };
+  const diffOf = (id) => IQ.DIFFICULTIES[id || settings.difficulty] || IQ.DIFFICULTIES.standard;
+
+  function paintDifficulty() {
+    Array.prototype.forEach.call($('difficulty').children, (b) => {
+      b.setAttribute('aria-checked', b.dataset.diff === settings.difficulty ? 'true' : 'false');
+    });
+    $('diff-note').textContent = diffOf().blurb;
+  }
+
+  function buildDifficultyControl() {
+    const host = $('difficulty');
+    IQ.DIFF_ORDER.forEach((id) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = id;
+      b.dataset.diff = id;
+      b.setAttribute('role', 'radio');
+      b.textContent = IQ.DIFFICULTIES[id].label;
+      b.addEventListener('click', () => setDifficulty(id));
+      host.appendChild(b);
+    });
+  }
+
+  function setDifficulty(id) {
+    if (!IQ.DIFFICULTIES[id]) return;
+    const changed = id !== settings.difficulty;
+    settings.difficulty = id;
+    storeDifficulty();
+    paintDifficulty();
+    if (!changed) return;
+    if (run) {
+      newRun(run.seed, id);
+      setStatus(`Difficulty set to ${IQ.DIFFICULTIES[id].label} — the run restarted.`, 'bad');
+    } else {
+      $('ov-text').innerHTML = `${OV_INTRO} Current difficulty: <b>${IQ.DIFFICULTIES[id].label}</b>.`;
+    }
+    say(`Difficulty ${IQ.DIFFICULTIES[id].label}.`);
+  }
+
   /* ---------- scoring + flow ---------- */
-  function newRun(seed) {
+  function newRun(seed, difficulty) {
+    if (difficulty && IQ.DIFFICULTIES[difficulty]) { settings.difficulty = difficulty; storeDifficulty(); }
     run = {
       seed: seed || (Math.floor(Math.random() * 900000) + 100000),
+      difficulty: settings.difficulty,
       level: 1, index: 0, score: 0, firstTry: 0, solved: 0, wrong: 0,
       start: Date.now(), timer: null, finished: false,
     };
     $('hud-seed').textContent = String(run.seed);
+    $('hud-diff').textContent = diffOf(run.difficulty).label;
+    paintDifficulty();
     run.timer = setInterval(paintTime, 500);
     newPuzzle();
   }
 
   function newPuzzle() {
-    const p = IQ.generate(run.level, run.index, run.seed);
+    const p = IQ.generate(run.level, run.index, run.seed, run.difficulty);
     if (!p) { $('status').textContent = 'Generator failed for this seed — try another seed.'; return; }
     run.puzzle = p;
     run.puzzleWrong = 0;
@@ -916,10 +1058,24 @@
     $('status').className = '';
     $('status').textContent = 'Drag a tile onto the dashed slot.';
     $('btn-next').hidden = true;
-    $('btn-hint').disabled = false;
     $('btn-skip').disabled = false;
+    paintHintButton(false);
     paintHud();
-    say(`Level ${run.level}, puzzle ${run.index + 1}. ${p.prompt}`);
+    say(`Level ${run.level}, puzzle ${run.index + 1}, ${diffOf(run.difficulty).label} difficulty. ${p.prompt}`);
+  }
+
+  function paintHintButton(disabled) {
+    const d = diffOf(run ? run.difficulty : null);
+    const btn = $('btn-hint');
+    if (!d.hints) {
+      btn.disabled = true;
+      btn.textContent = 'Hints off';
+      btn.title = 'Hints are disabled at this difficulty';
+      return;
+    }
+    btn.disabled = !!disabled;
+    btn.textContent = d.hintCost ? `Hint −${d.hintCost}` : 'Hint (free)';
+    btn.title = 'Reveal one of the hidden rules';
   }
 
   const familyName = (f) => f === 'matrix' ? 'Rule induction' : f === 'analogy' ? 'Analogy' : 'Odd one out';
@@ -929,11 +1085,17 @@
     run.wrong++;
     g.classList.add('wrong');
     window.setTimeout(() => g.classList.remove('wrong'), 360);
+    const d = diffOf(run.difficulty);
     const left = 3 - run.puzzleWrong;
-    if (left > 0) setStatus(`No — that tile breaks at least one hidden rule. ${left} more wrong answer${left === 1 ? '' : 's'} before a rule is revealed.`, 'bad');
-    else setStatus('No — that tile breaks at least one hidden rule.', 'bad');
+    if (!d.hints) {
+      setStatus(`No — that tile breaks at least one hidden rule. (−${d.wrongCost} if it stays wrong.)`, 'bad');
+    } else if (left > 0) {
+      setStatus(`No — that tile breaks at least one hidden rule. ${left} more wrong answer${left === 1 ? '' : 's'} before a rule is revealed.`, 'bad');
+    } else {
+      setStatus('No — that tile breaks at least one hidden rule.', 'bad');
+    }
     say('Incorrect. That tile breaks at least one rule.');
-    if (left === 0) revealHint(true);
+    if (d.hints && left === 0) revealHint(true);
     paintHud();
   }
 
@@ -944,15 +1106,16 @@
   }
 
   function onSolved() {
+    const d = diffOf(run.difficulty);
     const seconds = (Date.now() - run.puzzleStart) / 1000;
-    const base = 80 + run.level * 20;
-    const timeBonus = Math.max(0, Math.round(45 - seconds));
-    const penalty = run.puzzleWrong * 25 + (run.hintUsed ? 40 : 0);
+    const base = d.base[0] + run.level * d.base[1];
+    const timeBonus = Math.max(0, Math.round(d.timeWindow - seconds));
+    const penalty = run.puzzleWrong * d.wrongCost + (run.hintUsed ? d.hintCost : 0);
     const gain = Math.max(10, base - penalty) + timeBonus;
     run.score += gain;
     run.solved++;
     if (run.puzzleWrong === 0 && !run.hintUsed) run.firstTry++;
-    $('btn-hint').disabled = true;
+    paintHintButton(true);
     $('btn-skip').disabled = true;
     const last = run.level === 8 && run.index === 2;
     $('btn-next').hidden = false;
@@ -969,6 +1132,9 @@
   }
 
   function revealHint(free) {
+    if (!run.puzzle) return;
+    const d = diffOf(run.difficulty);
+    if (!d.hints) return;
     const p = run.puzzle;
     const shown = $('hints').querySelectorAll('.hint-list li');
     const nextRule = p.rules[shown.length];
@@ -976,12 +1142,13 @@
     if (!free) {
       if (run.hintUsed) return;
       run.hintUsed = true;
-      $('btn-hint').disabled = true;
+      paintHintButton(true);
     }
     let ul = $('hints').querySelector('.hint-list');
     if (!ul) { ul = document.createElement('ul'); ul.className = 'hint-list'; $('hints').appendChild(ul); }
     const li = document.createElement('li');
-    li.textContent = nextRule.text + (free ? '' : '  (−40)');
+    const cost = free ? '' : d.hintCost ? `  (−${d.hintCost})` : '  (free)';
+    li.textContent = nextRule.text + cost;
     ul.appendChild(li);
     say(`Hint: ${nextRule.text}`);
     paintHud();
@@ -1001,7 +1168,7 @@
     view.slotEl.textContent = '';
     setStatus('Revealed — no points.', 'bad');
     showRules();
-    $('btn-hint').disabled = true;
+    paintHintButton(true);
     $('btn-skip').disabled = true;
     $('btn-next').hidden = false;
     $('btn-next').textContent = (run.level === 8 && run.index === 2) ? 'See results →' : 'Next puzzle →';
@@ -1018,15 +1185,19 @@
     run.finished = true;
     clearInterval(run.timer);
     const secs = Math.round((Date.now() - run.start) / 1000);
-    const rating = run.score >= 4400 ? 'Elite' : run.score >= 3400 ? 'Exceptional' : run.score >= 2400 ? 'Advanced' : run.score >= 1500 ? 'Strong' : 'Developing';
+    const d = diffOf(run.difficulty);
+    const [strong, adv, exc, elite] = d.ratings;
+    const rating = run.score >= elite ? 'Elite' : run.score >= exc ? 'Exceptional'
+      : run.score >= adv ? 'Advanced' : run.score >= strong ? 'Strong' : 'Developing';
     $('ov-title').textContent = 'Run complete';
-    $('ov-text').innerHTML = `Verdict: <b>${rating}</b>. ${run.firstTry} of 24 puzzles solved on the first try with no hint — that is the number that matters.`;
+    $('ov-text').innerHTML = `Verdict: <b>${rating}</b> on <b>${d.label}</b>. ${run.firstTry} of 24 puzzles solved on the first try with no hint — that is the number that matters.`;
     const stats = $('ov-stats');
     stats.hidden = false;
     stats.innerHTML = `
       <div><span>${run.score}</span><em>Score</em></div>
       <div><span>${run.solved}/24</span><em>Solved</em></div>
       <div><span>${Math.round((run.firstTry / 24) * 100)}%</span><em>First try</em></div>
+      <div><span>${d.label}</span><em>Difficulty</em></div>
       <div><span>${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}</span><em>Time</em></div>`;
     $('ov-btn').textContent = 'New run';
     $('overlay').hidden = false;
@@ -1047,6 +1218,11 @@
   }
 
   /* ---------- wiring ---------- */
+  const OV_INTRO = 'Drag the one tile that obeys every hidden rule onto the dashed slot. Tiles can also be focused with <kbd>Tab</kbd> and placed with <kbd>Enter</kbd>.';
+  buildDifficultyControl();
+  paintDifficulty();
+  paintHintButton(false);
+  $('ov-text').innerHTML = `${OV_INTRO} Current difficulty: <b>${diffOf().label}</b>.`;
   $('ov-btn').addEventListener('click', () => {
     $('overlay').hidden = true;
     const params = new URLSearchParams(location.search);

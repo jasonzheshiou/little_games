@@ -50,6 +50,10 @@ await send('Page.enable');
 await send('Emulation.setDeviceMetricsOverride', { width: 1000, height: 900, deviceScaleFactor: 1, mobile: false });
 await send('Page.navigate', { url: `${FILE}?seed=424242` });
 await sleep(1400);
+// start from a clean slate so "default difficulty" is deterministic across runs
+await ev(`try { localStorage.removeItem('abstract.difficulty'); } catch (_) {}`);
+await send('Page.navigate', { url: `${FILE}?seed=424242` });
+await sleep(1200);
 
 const results = [];
 const check = (l, p, e = '') => results.push({ l, p, e });
@@ -153,6 +157,39 @@ const sBeforeSkip = (await ev('__T.state()')).score;
 await ev(`document.getElementById('btn-skip').click()`);
 const skipped = await ev('__T.state()');
 check('reveal & skip shows the answer without points', skipped.solved && skipped.score === sBeforeSkip && skipped.filled === 1);
+
+// difficulty settings: selector, hint gating, and a real effect on generation
+await ev(`document.getElementById('btn-restart').click()`);
+await sleep(350);
+const seg = await ev(`[...document.querySelectorAll('#difficulty button')].map(b => ({ label: b.textContent, on: b.getAttribute('aria-checked') === 'true' }))`);
+check('difficulty selector offers all four settings', seg.length === 4, seg.map((s) => s.label).join(','));
+check('standard is the default selection', seg.some((s) => s.label === 'Standard' && s.on), JSON.stringify(seg));
+
+await ev(`document.querySelector('#difficulty button.nightmare').click()`);
+await sleep(350);
+const night = await ev(`({ diff: window.__IQ_TEST.run().difficulty, attrs: window.__IQ_TEST.view.puzzle.attrs.length,
+  hint: { text: document.getElementById('btn-hint').textContent, off: document.getElementById('btn-hint').disabled },
+  score: window.__IQ_TEST.run().score, chip: document.getElementById('hud-diff').textContent })`);
+check('switching difficulty restarts the run at the new setting', night.diff === 'nightmare' && night.score === 0 && night.chip === 'Nightmare', JSON.stringify(night));
+check('nightmare disables hints', night.hint.off && night.hint.text === 'Hints off', JSON.stringify(night.hint));
+check('nightmare boards use all six attributes', night.attrs === 6, String(night.attrs));
+await ev('__T.drag(__T.answerEl(), __T.slot())');
+const nightSolved = await ev('__T.state()');
+check('nightmare pays more per puzzle than standard', nightSolved.score >= 170, `+${nightSolved.score}`);
+const persisted = await ev(`(() => { try { return localStorage.getItem('abstract.difficulty'); } catch (_) { return 'unavailable'; } })()`);
+check('difficulty choice is remembered', persisted === 'nightmare' || persisted === 'unavailable', String(persisted));
+
+await ev(`document.querySelector('#difficulty button.warmup').click()`);
+await sleep(350);
+const warm = await ev(`({ diff: window.__IQ_TEST.run().difficulty, attrs: window.__IQ_TEST.view.puzzle.attrs.length,
+  hint: document.getElementById('btn-hint').textContent, score: window.__IQ_TEST.run().score })`);
+check('warm-up boards are simpler and hints are free', warm.attrs <= 3 && warm.hint === 'Hint (free)' && warm.diff === 'warmup', JSON.stringify(warm));
+await ev(`document.getElementById('btn-hint').click()`);
+const hintCost = await ev(`({ score: window.__IQ_TEST.run().score, hints: document.querySelectorAll('.hint-list li').length })`);
+check('free hints reveal a rule without a score penalty', hintCost.score === 0 && hintCost.hints === 1, JSON.stringify(hintCost));
+await ev(`document.querySelector('#difficulty button.standard').click()`);
+await sleep(250);
+check('selector state follows the last choice', await ev(`document.querySelector('#difficulty button[data-diff="standard"]').getAttribute('aria-checked') === 'true'`));
 
 // board geometry sanity
 const geo = await ev(`(() => {

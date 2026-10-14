@@ -25,14 +25,22 @@ Add `?seed=12345` to the URL to replay or share an identical run.
 Difficulty is a generator setting, not a score multiplier — it changes how many attributes are in play,
 how subtle a rule may be, how many near-identical tiles you must reject, and what help is available:
 
-| Difficulty | Attributes | Tiles offered | Hints | Speed-bonus window |
-| --- | --- | --- | --- | --- |
-| **Warm-up** | 2–3 | 4–5 | free | 60 s |
-| **Standard** | 2–6 (tuned curve) | 4–6 | −40 | 45 s |
-| **Expert** | 3–6, rotation from level 1 | 5–6 | −60 | 35 s |
-| **Nightmare** | 6 on every board | 6 | disabled | 25 s |
+| Difficulty | Attributes | Tiles | Hints | Speed-bonus window | Extra pressure |
+| --- | --- | --- | --- | --- | --- |
+| **Warm-up** | 2–3 | 4–5 | free | 60 s | — |
+| **Standard** | 2–6 (tuned curve) | 4–6 | −40 | 45 s | — |
+| **Expert** | 3–6, rotation from level 1 | 5–6 | −60 | 35 s | — |
+| **Nightmare** | 6 on every board | 6 | disabled | 25 s | — |
+| **Abyss** | 6 on every board | 6 | disabled | 20 s | second-tier rules, ≥4 attributes must genuinely vary, 2 attempts per board, 90 s clock |
+| **Oblivion** | 6 on every board | 6 | disabled | 15 s | ≥5 varying attributes, **one** attempt, 75 s clock, **no skip**, 4 boards per level |
 
-Changing difficulty mid-run starts a new run. The choice is remembered in `localStorage`.
+The top two rungs unlock a rule tier the easier settings never generate: patterns anchored on the centre
+panel, or advancing at different rates along rows and columns (e.g. *"Rotation advances three steps per row
+and two per column"*). They also add real pressure beyond pattern difficulty — an attempt limit that closes
+the board, a countdown that closes the board, and on Oblivion no skip and no second chances.
+
+Changing difficulty mid-run starts a new run. The choice is remembered in `localStorage`. A run is 8 levels
+× 3 boards (24), or × 4 on Oblivion (32).
 
 | Level 1–3 (warm-up) | Level 6+ (six interacting attributes) | Odd one out |
 | --- | --- | --- |
@@ -50,9 +58,9 @@ The generator never paints a board it cannot defend. For every board it guarante
 6. each difficulty really does change the generator configuration (attributes, rule subtlety, tile count,
    hint policy), not just the score.
 
-Those invariants are machine-checked: 24 000 generated boards (4 difficulties × 250 seeds × 24 puzzles)
-plus a scripted playthrough of all 24 puzzles in headless Chromium (26 assertions, including the
-difficulty switch mid-run).
+Those invariants are machine-checked: 38 000 generated boards (6 difficulties × 250 seeds, every board a
+difficulty actually generates) plus a scripted playthrough of all 24 Standard boards and the Abyss/Oblivion
+mechanics in headless Chromium (35 assertions).
 
 ## Run the checks
 
@@ -60,8 +68,8 @@ Both games ship with their own verification scripts (Node only, no dependencies)
 
 ```sh
 # generator invariants — uniqueness, tile distinctness, single-attribute distractors,
-# and that every difficulty really changes the generator configuration
-node tests/engine.test.mjs iq-reasoning.html 250
+# and that every one of the six difficulties really changes the generator configuration
+node tests/engine.test.mjs iq-reasoning.html 250    # 38 000 boards
 
 # scripted playthrough of all 24 puzzles in headless Chromium (CDP), plus screenshots
 node tests/browser.test.mjs "file://$PWD/iq-reasoning.html" .

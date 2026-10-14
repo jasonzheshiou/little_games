@@ -48,6 +48,10 @@
   }
   .segment button[aria-checked="true"] { background: var(--accent); color: #04263a; }
   .segment button.nightmare[aria-checked="true"] { background: #fb7185; color: #3f0d1a; }
+  .segment button.abyss[aria-checked="true"] { background: #a78bfa; color: #2e1065; }
+  .segment button.oblivion[aria-checked="true"] { background: #f43f5e; color: #fff; }
+  .chip.danger { border-color: rgba(244, 63, 94, .65); background: rgba(244, 63, 94, .16); }
+  .chip.danger b { color: #fda4af; }
   .segment button.ghost { background: transparent; }
   .diff-note { font-size: 12.5px; color: var(--muted); }
   .chip {
@@ -165,8 +169,8 @@
       Expert-tier pattern reasoning. Every board is generated from a hidden rule set, so there is
       <b>exactly one</b> tile that satisfies it — and the wrong tiles differ from the right one in a
       <b>single</b> attribute. Three families: <b>matrix rule induction</b>, <b>figural analogies</b>,
-      and <b>invariant spotting</b>. 8 levels × 3 puzzles across four difficulties. Hints cost points;
-      so does hesitation — and on Nightmare, hints do not exist.
+      and <b>invariant spotting</b>. Six difficulties, from Warm-up (free hints) to Oblivion (one wrong tile
+      closes the board, no skip, 75-second clock). Hints cost points; so does hesitation.
     </p>
   </header>
 
@@ -179,6 +183,7 @@
   <div class="hud">
     <span class="chip">Level <b id="hud-level">1/8</b></span>
     <span class="chip">Puzzle <b id="hud-index">1/3</b></span>
+    <span class="chip" id="chip-clock" hidden>Clock <b id="hud-clock">—</b></span>
     <span class="chip">Difficulty <b id="hud-diff">Standard</b></span>
     <span class="chip">Score <b id="hud-score">0</b></span>
     <span class="chip">Accuracy <b id="hud-acc">—</b></span>
@@ -232,6 +237,10 @@
       <li><b>Difficulty</b> changes what the generator is allowed to do, not just the score. Warm-up plays
         two or three attributes with blunt rules and free hints; Nightmare always runs all six attributes
         with the subtlest rules, six near-identical tiles, and no hints at all.</li>
+      <li><b>Abyss and Oblivion</b> unlock a second rule tier — patterns that depend on the centre panel or
+        advance at different rates along rows and columns — and add real pressure: a minimum number of rules
+        that must genuinely vary, a hard attempt limit (Oblivion allows one guess), a per-board countdown,
+        and no skip on Oblivion.</li>
     </ul>
     <p>Keys: <kbd>Tab</kbd> select tile · <kbd>Enter</kbd> place it · <kbd>h</kbd> hint · <kbd>s</kbd> skip ·
       <kbd>n</kbd> next. Add <code>?seed=12345</code> to the URL to replay an identical run.</p>
@@ -346,6 +355,7 @@
       { t: 3, text: 'The base shape changes once per row.', gen: (r, c, ctx) => ctx.kinds[r % 3] },
       { t: 4, text: 'The base shape changes once per column.', gen: (r, c, ctx) => ctx.kinds[c % 3] },
       { t: 5, text: 'The base shape cycles along the diagonals.', gen: (r, c, ctx) => ctx.kinds[(r + c) % 3] },
+      { t: 7, text: 'The base shape advances one step per row and two per column.', gen: (r, c, ctx) => ctx.kinds[(r + 2 * c) % 3] },
     ],
     count: [
       { t: 1, text: 'The number of glyphs is identical in every panel.', gen: (r, c, ctx) => ctx.k1 },
@@ -354,6 +364,7 @@
       { t: 3, text: 'The glyph count cycles along the diagonals.', gen: (r, c) => ((r + c) % 3) + 1 },
       { t: 5, text: 'The glyph count advances by two per column and one per row.', gen: (r, c) => ((r + 2 * c) % 3) + 1 },
       { t: 6, text: 'The glyph count advances by two per row and one per column.', gen: (r, c) => ((2 * r + c) % 3) + 1 },
+      { t: 7, text: 'The glyph count advances by two at every diagonal step.', gen: (r, c) => ((2 * (r + c)) % 3) + 1 },
     ],
     rot: [
       { t: 3, text: 'Each step to the right rotates the glyph 45° clockwise.', gen: (r, c) => 45 * c },
@@ -361,12 +372,14 @@
       { t: 4, text: 'Each diagonal step rotates the glyph 45° clockwise.', gen: (r, c) => 45 * (r + c) },
       { t: 5, text: 'A step right rotates 90°; a step down rotates 45°.', gen: (r, c) => 90 * c + 45 * r },
       { t: 6, text: 'Rotation follows three 45° steps per column, one per row.', gen: (r, c) => 45 * ((r + 3 * c) % 8) },
+      { t: 7, text: 'Rotation advances three steps per row and two per column.', gen: (r, c) => 45 * ((3 * r + 2 * c) % 8) },
     ],
     size: [
       { t: 2, text: 'All glyphs are the same size.', gen: (r, c, ctx) => ctx.s1 },
       { t: 3, text: 'Glyph size cycles along the diagonals.', gen: (r, c) => SIZES[(r + c) % 3] },
       { t: 4, text: 'Glyphs shrink one step at a time from left to right.', gen: (r, c) => SIZES[2 - c] },
       { t: 6, text: 'Glyph size advances by two per row and one per column.', gen: (r, c) => SIZES[(2 * r + c) % 3] },
+      { t: 7, text: 'Glyphs are smallest at the centre panel and grow toward the corners.', gen: (r, c) => SIZES[Math.min(2, Math.abs(2 - (r + c)))] },
     ],
     fill: [
       { t: 2, text: 'Every panel uses the same fill style.', gen: (r, c, ctx) => ctx.f1 },
@@ -374,11 +387,13 @@
       { t: 3, text: 'The fill style changes from column to column.', gen: (r, c) => FILLS[c % 3] },
       { t: 5, text: 'The fill style advances one step per column and two per row.', gen: (r, c) => FILLS[(r + 2 * c) % 3] },
       { t: 6, text: 'The fill style advances two steps per row and one per column.', gen: (r, c) => FILLS[(2 * r + c) % 3] },
+      { t: 7, text: 'The fill style is set by each panel’s distance from the centre.', gen: (r, c) => FILLS[Math.abs(2 - (r + c)) % 3] },
     ],
     extra: [
       { t: 6, text: 'A secondary glyph appears on alternating panels.', gen: (r, c, ctx) => ((r + c) % 2 === 0 ? { kind: ctx.xk, rot: 0 } : null) },
       { t: 6, text: 'A secondary glyph appears only on the main diagonal.', gen: (r, c, ctx) => (r === c ? { kind: ctx.xk, rot: 0 } : null) },
       { t: 6, text: 'Every panel carries a secondary glyph that rotates with its column.', gen: (r, c, ctx) => ({ kind: ctx.xk, rot: 45 * c }) },
+      { t: 7, text: 'A secondary glyph appears on alternating panels and spins 90° per column.', gen: (r, c, ctx) => ((r + c) % 2 === 0 ? { kind: ctx.xk, rot: 90 * c } : null) },
     ],
   };
 
@@ -436,8 +451,22 @@
       base: [140, 30], wrongCost: 60, hintCost: 0, hints: false, timeWindow: 25,
       ratings: [4000, 4900, 5800, 6500],
     },
+    abyss: {
+      id: 'abyss', label: 'Abyss', blurb: 'Second-order rules, four attributes must genuinely vary, two attempts, hard clock.',
+      tiers: [7, 7, 7, 7, 7, 7, 7, 7], attrs: repeatSet(8, ALL_ATTRS), options: [6, 6, 6, 6, 6, 6, 6, 6],
+      base: [170, 35], wrongCost: 80, hintCost: 0, hints: false, timeWindow: 20,
+      variedMin: 4, attemptsMax: 2, timeLimit: 90, skip: true, puzzles: 3,
+      ratings: [5200, 6200, 7000, 7600],
+    },
+    oblivion: {
+      id: 'oblivion', label: 'Oblivion', blurb: 'One wrong tile closes the board, no skip, 75-second clock, four boards a level.',
+      tiers: [7, 7, 7, 7, 7, 7, 7, 7], attrs: repeatSet(8, ALL_ATTRS), options: [6, 6, 6, 6, 6, 6, 6, 6],
+      base: [200, 40], wrongCost: 120, hintCost: 0, hints: false, timeWindow: 15,
+      variedMin: 5, attemptsMax: 1, timeLimit: 75, skip: false, puzzles: 4,
+      ratings: [7500, 9000, 10500, 11500],
+    },
   };
-  const DIFF_ORDER = ['warmup', 'standard', 'expert', 'nightmare'];
+  const DIFF_ORDER = ['warmup', 'standard', 'expert', 'nightmare', 'abyss', 'oblivion'];
 
   function configFor(difficulty, level) {
     const d = DIFFICULTIES[difficulty] || DIFFICULTIES.standard;
@@ -448,6 +477,7 @@
       attrs: (d.attrs ? d.attrs[i] : base.attrs).slice(),
       tier: d.tiers[i],
       options: d.options[i],
+      variedMin: d.variedMin || 0,
     };
   }
 
@@ -520,7 +550,7 @@
     // reject degenerate boards: nothing varying, or a rule the eye cannot see
     const varied = attrs.filter((a) => grid.reduce((acc, row) => acc.concat(row), [])
       .filter((cell, i, all) => all.findIndex((x) => attrKeys(x, a) === attrKeys(cell, a)) === i).length > 1);
-    if (varied.length < (cfg.tier >= 3 ? 2 : 1)) return null;
+    if (varied.length < (cfg.variedMin || (cfg.tier >= 3 ? 2 : 1))) return null;
 
     const answerSig = signature(answer);
     // Distractors may break the rule of ANY active attribute (a constant rule is still a rule),
@@ -707,7 +737,7 @@
   function generate(level, index, seed, difficulty) {
     const diff = DIFFICULTIES[difficulty] ? difficulty : 'standard';
     const cfg = configFor(diff, level);
-    const family = cfg.family[index];
+    const family = cfg.family[index % cfg.family.length];
     const diffSalt = DIFF_ORDER.indexOf(diff) * 15731;
     for (let attempt = 0; attempt < 400; attempt++) {
       const rng = makeRng(((seed || 1) ^ (level * 7919 + index * 104729 + diffSalt + attempt * 2654435761)) >>> 0);
@@ -1013,6 +1043,14 @@
     });
   }
 
+  const boardHint = (id) => {
+    const d = diffOf(id);
+    const parts = [];
+    if (d.timeLimit) parts.push(`${d.timeLimit} seconds`);
+    if (d.attemptsMax) parts.push(`${d.attemptsMax === 1 ? 'one attempt' : `${d.attemptsMax} attempts`}`);
+    return parts.length ? `Drag a tile onto the dashed slot — ${parts.join(', ')}.` : 'Drag a tile onto the dashed slot.';
+  };
+
   function setDifficulty(id) {
     if (!IQ.DIFFICULTIES[id]) return;
     const changed = id !== settings.difficulty;
@@ -1022,7 +1060,7 @@
     if (!changed) return;
     if (run) {
       newRun(run.seed, id);
-      setStatus(`Difficulty set to ${IQ.DIFFICULTIES[id].label} — the run restarted.`, 'bad');
+      setStatus(`Difficulty set to ${IQ.DIFFICULTIES[id].label} — run restarted. ${boardHint(id)}`);
     } else {
       $('ov-text').innerHTML = `${OV_INTRO} Current difficulty: <b>${IQ.DIFFICULTIES[id].label}</b>.`;
     }
@@ -1032,12 +1070,15 @@
   /* ---------- scoring + flow ---------- */
   function newRun(seed, difficulty) {
     if (difficulty && IQ.DIFFICULTIES[difficulty]) { settings.difficulty = difficulty; storeDifficulty(); }
+    const d = diffOf(settings.difficulty);
     run = {
       seed: seed || (Math.floor(Math.random() * 900000) + 100000),
       difficulty: settings.difficulty,
-      level: 1, index: 0, score: 0, firstTry: 0, solved: 0, wrong: 0,
+      level: 1, index: 0, score: 0, firstTry: 0, solved: 0, wrong: 0, failed: 0,
+      puzzlesPerLevel: d.puzzles || 3, deadline: null, warned: false,
       start: Date.now(), timer: null, finished: false,
     };
+    run.total = IQ.LEVELS.length * run.puzzlesPerLevel;
     $('hud-seed').textContent = String(run.seed);
     $('hud-diff').textContent = diffOf(run.difficulty).label;
     paintDifficulty();
@@ -1046,22 +1087,28 @@
   }
 
   function newPuzzle() {
+    const d = diffOf(run.difficulty);
     const p = IQ.generate(run.level, run.index, run.seed, run.difficulty);
     if (!p) { $('status').textContent = 'Generator failed for this seed — try another seed.'; return; }
     run.puzzle = p;
     run.puzzleWrong = 0;
     run.puzzleStart = Date.now();
     run.hintUsed = false;
+    run.deadline = d.timeLimit ? Date.now() + d.timeLimit * 1000 : null;
+    run.warned = false;
+    $('chip-clock').hidden = !run.deadline;
+    $('hud-clock').textContent = '—';
     render(p);
     $('prompt').innerHTML = `<span class="fam">${familyName(p.family)}</span>${p.prompt}`;
     $('hints').textContent = '';
     $('status').className = '';
-    $('status').textContent = 'Drag a tile onto the dashed slot.';
+    $('status').textContent = boardHint(run.difficulty);
     $('btn-next').hidden = true;
-    $('btn-skip').disabled = false;
+    $('btn-skip').disabled = d.skip === false;
+    $('btn-skip').title = d.skip === false ? `${d.label} does not allow skipping` : 'Give up this board and see the rules';
     paintHintButton(false);
     paintHud();
-    say(`Level ${run.level}, puzzle ${run.index + 1}, ${diffOf(run.difficulty).label} difficulty. ${p.prompt}`);
+    say(`Level ${run.level}, puzzle ${run.index + 1}, ${d.label} difficulty. ${p.prompt}`);
   }
 
   function paintHintButton(disabled) {
@@ -1086,6 +1133,12 @@
     g.classList.add('wrong');
     window.setTimeout(() => g.classList.remove('wrong'), 360);
     const d = diffOf(run.difficulty);
+    const max = d.attemptsMax || Infinity;
+    if (run.puzzleWrong >= max) {
+      failPuzzle(`No — that tile breaks at least one hidden rule. ${d.label} allows ${max === 1 ? 'one attempt' : `only ${max} attempts`} per board.`);
+      paintHud();
+      return;
+    }
     const left = 3 - run.puzzleWrong;
     if (!d.hints) {
       setStatus(`No — that tile breaks at least one hidden rule. (−${d.wrongCost} if it stays wrong.)`, 'bad');
@@ -1117,7 +1170,9 @@
     if (run.puzzleWrong === 0 && !run.hintUsed) run.firstTry++;
     paintHintButton(true);
     $('btn-skip').disabled = true;
-    const last = run.level === 8 && run.index === 2;
+    run.deadline = null;
+    $('chip-clock').classList.remove('danger');
+    const last = isLastBoard();
     $('btn-next').hidden = false;
     $('btn-next').textContent = last ? 'See results →' : 'Next puzzle →';
     setStatus(`Correct. +${gain} points (${Math.round(seconds)}s${penalty ? `, −${penalty} penalty` : ''}).`, 'ok');
@@ -1154,35 +1209,59 @@
     paintHud();
   }
 
-  function skip() {
-    if (!run.puzzle || view.solved) return;
-    view.solved = true;
+  function revealAnswer() {
     const p = run.puzzle;
     p.tiles.forEach((t) => { if (t.id !== p.answerId) view.tileEls.get(t.id).classList.add('dim'); });
     const answer = p.tiles.find((t) => t.id === p.answerId);
-    const filled = drawPanel(view.slot.x - view.slot.w / 2, view.slot.y - view.slot.h / 2, view.slot.w, view.slot.h, 'filled');
-    layers.display.appendChild(filled);
+    if (!answer) return;
+    layers.display.appendChild(drawPanel(view.slot.x - view.slot.w / 2, view.slot.y - view.slot.h / 2, view.slot.w, view.slot.h, 'filled'));
     const grp = glyphGroup(answer.cell, 21);
     grp.setAttribute('transform', `translate(${view.slot.x},${view.slot.y})`);
     layers.display.appendChild(grp);
     view.slotEl.textContent = '';
-    setStatus('Revealed — no points.', 'bad');
     showRules();
+  }
+
+  function closeBoard(message, kind) {
+    view.solved = true;
+    run.deadline = null;
+    $('chip-clock').classList.remove('danger');
+    setStatus(message, kind || 'bad');
     paintHintButton(true);
     $('btn-skip').disabled = true;
     $('btn-next').hidden = false;
-    $('btn-next').textContent = (run.level === 8 && run.index === 2) ? 'See results →' : 'Next puzzle →';
+    $('btn-next').textContent = isLastBoard() ? 'See results →' : 'Next puzzle →';
+  }
+
+  function skip() {
+    if (!run.puzzle || view.solved) return;
+    if (diffOf(run.difficulty).skip === false) return;
+    revealAnswer();
+    closeBoard('Revealed — no points.');
+  }
+
+  function failPuzzle(reason) {
+    if (!run.puzzle || view.solved || run.finished) return;
+    revealAnswer();
+    run.failed++;
+    closeBoard(`${reason} The answer was revealed — no points.`);
+    say(reason);
+  }
+
+  function isLastBoard() {
+    return run.level >= IQ.LEVELS.length && run.index >= run.puzzlesPerLevel - 1;
   }
 
   function next() {
-    if (run.level === 8 && run.index === 2) return finish();
+    if (isLastBoard()) return finish();
     run.index++;
-    if (run.index > 2) { run.index = 0; run.level++; }
+    if (run.index >= run.puzzlesPerLevel) { run.index = 0; run.level++; }
     newPuzzle();
   }
 
   function finish() {
     run.finished = true;
+    run.deadline = null;
     clearInterval(run.timer);
     const secs = Math.round((Date.now() - run.start) / 1000);
     const d = diffOf(run.difficulty);
@@ -1190,13 +1269,14 @@
     const rating = run.score >= elite ? 'Elite' : run.score >= exc ? 'Exceptional'
       : run.score >= adv ? 'Advanced' : run.score >= strong ? 'Strong' : 'Developing';
     $('ov-title').textContent = 'Run complete';
-    $('ov-text').innerHTML = `Verdict: <b>${rating}</b> on <b>${d.label}</b>. ${run.firstTry} of 24 puzzles solved on the first try with no hint — that is the number that matters.`;
+    $('ov-text').innerHTML = `Verdict: <b>${rating}</b> on <b>${d.label}</b>. ${run.firstTry} of ${run.total} boards solved on the first try with no hint — that is the number that matters.`;
     const stats = $('ov-stats');
     stats.hidden = false;
     stats.innerHTML = `
       <div><span>${run.score}</span><em>Score</em></div>
-      <div><span>${run.solved}/24</span><em>Solved</em></div>
-      <div><span>${Math.round((run.firstTry / 24) * 100)}%</span><em>First try</em></div>
+      <div><span>${run.solved}/${run.total}</span><em>Solved</em></div>
+      <div><span>${run.failed}</span><em>Failed</em></div>
+      <div><span>${Math.round((run.firstTry / run.total) * 100)}%</span><em>First try</em></div>
       <div><span>${d.label}</span><em>Difficulty</em></div>
       <div><span>${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}</span><em>Time</em></div>`;
     $('ov-btn').textContent = 'New run';
@@ -1204,8 +1284,8 @@
   }
 
   function paintHud() {
-    $('hud-level').textContent = `${run.level}/8`;
-    $('hud-index').textContent = `${run.index + 1}/3`;
+    $('hud-level').textContent = `${run.level}/${IQ.LEVELS.length}`;
+    $('hud-index').textContent = `${run.index + 1}/${run.puzzlesPerLevel}`;
     $('hud-score').textContent = String(run.score);
     const tries = run.solved + run.wrong;
     $('hud-acc').textContent = tries ? `${Math.round((run.solved / tries) * 100)}%` : '—';
@@ -1215,6 +1295,12 @@
     if (!run) return;
     const s = Math.round((Date.now() - run.start) / 1000);
     $('hud-time').textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    if (!run.deadline || run.finished) return;
+    const left = Math.max(0, Math.ceil((run.deadline - Date.now()) / 1000));
+    $('hud-clock').textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+    $('chip-clock').classList.toggle('danger', left <= 15);
+    if (left <= 10 && !run.warned) { run.warned = true; say(`${left} seconds left on this board.`); }
+    if (left <= 0) failPuzzle('Out of time.');
   }
 
   /* ---------- wiring ---------- */

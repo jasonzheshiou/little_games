@@ -24,15 +24,21 @@ let total = 0;
 const fails = [];
 const perFamily = { matrix: 0, analogy: 0, odd: 0 };
 const perDiff = {};
+DIFFS.forEach((d) => { perDiff[d] = 0; });
 const stats = { minOptions: 99, maxOptions: 0, maxAttrsTouched: 0 };
+// rules tagged with the hardest tier — used to prove the two hardest difficulties reach them
+const t7texts = new Set(Object.values(IQ.RULES).flat().filter((r) => r.t === 7).map((r) => r.text));
+let t7seen = 0;
+const expectedTotal = DIFFS.reduce((n, d) => n + 8 * (IQ.DIFFICULTIES[d].puzzles || 3), 0) * SEEDS;
 const t0 = Date.now();
 
 for (const diff of DIFFS) {
-  perDiff[diff] = 0;
+  const perLevel = IQ.DIFFICULTIES[diff].puzzles || 3;
   for (let s = 0; s < SEEDS; s++) {
     const seed = 100000 + s * 7919;
     for (let level = 1; level <= 8; level++) {
-      for (let index = 0; index < 3; index++) {
+      const cfg = IQ.configFor(diff, level);
+      for (let index = 0; index < perLevel; index++) {
         const p = IQ.generate(level, index, seed, diff);
         const where = `${diff} seed ${seed} L${level}.${index + 1}`;
         if (!p) { fails.push(`${where}: generator returned null`); continue; }
@@ -41,6 +47,12 @@ for (const diff of DIFFS) {
         perFamily[p.family]++;
         stats.minOptions = Math.min(stats.minOptions, p.tiles.length);
         stats.maxOptions = Math.max(stats.maxOptions, p.tiles.length);
+        for (const r of p.rules) if (t7texts.has(r.text)) t7seen++;
+        if (p.family === 'matrix' && cfg.variedMin) {
+          const flat = p.grid.flat();
+          const varied = p.attrs.filter((a) => new Set(flat.map((c) => String(val(c, a)))).size > 1).length;
+          if (varied < cfg.variedMin) fails.push(`${where}: only ${varied} attributes vary (must be >= ${cfg.variedMin})`);
+        }
         if (!p.prompt || !p.rules.length) fails.push(`${where}: missing prompt/rules`);
         if (p.difficulty !== diff) fails.push(`${where}: puzzle not tagged with its difficulty`);
         // odd-one-out needs at least five tiles by nature (four obey + one breaks the rule)
@@ -104,9 +116,10 @@ for (const diff of DIFFS) {
 }
 
 const ms = Date.now() - t0;
-check(`${total} boards valid across ${DIFFS.length} difficulties × ${SEEDS} seeds × 24 puzzles`,
-  fails.length === 0 && total === SEEDS * 24 * DIFFS.length,
-  fails.length ? `\n  ${fails.slice(0, 10).join('\n  ')}${fails.length > 10 ? `\n  …${fails.length} total` : ''}` : '');
+check(`${total} boards valid across ${DIFFS.length} difficulties × ${SEEDS} seeds`,
+  fails.length === 0 && total === expectedTotal,
+  fails.length ? `\n  ${fails.slice(0, 10).join('\n  ')}${fails.length > 10 ? `\n  …${fails.length} total` : ''}`
+    : (total !== expectedTotal ? `expected ${expectedTotal}` : ''));
 check('all difficulties and families exercised', Object.values(perDiff).every((n) => n > 0) && Object.values(perFamily).every((n) => n > 0),
   `${JSON.stringify(perDiff)} ${JSON.stringify(perFamily)}`);
 check('distractor counts stay inside 4..6 tiles', stats.minOptions >= 4 && stats.maxOptions <= 6, `${stats.minOptions}..${stats.maxOptions}`);
@@ -128,6 +141,26 @@ check('scoring scales with difficulty', IQ.DIFFICULTIES.warmup.base[0] < IQ.DIFF
 check('rating thresholds scale with difficulty', IQ.DIFFICULTIES.warmup.ratings[3] < IQ.DIFFICULTIES.nightmare.ratings[3]);
 check('unknown difficulty falls back to standard', !!IQ.generate(1, 0, 12345, 'nonsense'));
 check('standard run still matches the tuned LEVELS curve', IQ.configFor('standard', 8).attrs.length === 6);
+
+// the two hardest settings must be harder on every lever, not just on paper
+const ladder = ['warmup', 'standard', 'expert', 'nightmare', 'abyss', 'oblivion'];
+check('six difficulties in a strict order', DIFFS.length === 6 && ladder.every((d, i) => DIFFS[i] === d), DIFFS.join(','));
+check('abyss and oblivion reach the second rule tier', IQ.configFor('abyss', 1).tier === 7 && IQ.configFor('oblivion', 8).tier === 7
+  && IQ.configFor('nightmare', 8).tier === 6);
+check('tier-7 rules actually appear in generated boards', t7seen > 0, `${t7seen} boards used a tier-7 rule`);
+check('abyss and oblivion demand more genuinely varying attributes', IQ.configFor('abyss', 1).variedMin === 4
+  && IQ.configFor('oblivion', 1).variedMin === 5 && !IQ.configFor('nightmare', 1).variedMin);
+check('oblivion is stricter than abyss on attempts and clock', IQ.DIFFICULTIES.oblivion.attemptsMax === 1
+  && IQ.DIFFICULTIES.abyss.attemptsMax === 2 && IQ.DIFFICULTIES.oblivion.timeLimit < IQ.DIFFICULTIES.abyss.timeLimit);
+check('oblivion forbids skipping where abyss allows it', IQ.DIFFICULTIES.oblivion.skip === false && IQ.DIFFICULTIES.abyss.skip === true);
+check('oblivion runs more boards per level', (IQ.DIFFICULTIES.oblivion.puzzles || 3) === 4 && (IQ.DIFFICULTIES.abyss.puzzles || 3) === 3);
+check('the hard levers default to permissive', ['warmup', 'standard', 'expert', 'nightmare']
+  .every((d) => !IQ.DIFFICULTIES[d].attemptsMax && !IQ.DIFFICULTIES[d].timeLimit && IQ.DIFFICULTIES[d].skip !== false
+    && (IQ.DIFFICULTIES[d].puzzles || 3) === 3));
+check('abyss and oblivion out-pay nightmare', IQ.DIFFICULTIES.abyss.base[0] > IQ.DIFFICULTIES.nightmare.base[0]
+  && IQ.DIFFICULTIES.oblivion.wrongCost > IQ.DIFFICULTIES.abyss.wrongCost);
+check('ladder of ratings is monotonic', ladder.every((d, i) => i === 0 || IQ.DIFFICULTIES[d].ratings[3] > IQ.DIFFICULTIES[ladder[i - 1]].ratings[3]));
+check('oblivion boards exist at index 3 (four boards a level)', !!IQ.generate(4, 3, 555, 'oblivion'));
 
 const runA = JSON.stringify(IQ.generateRun(424242));
 check('same seed reproduces the same run', runA === JSON.stringify(IQ.generateRun(424242)));

@@ -162,7 +162,7 @@ check('reveal & skip shows the answer without points', skipped.solved && skipped
 await ev(`document.getElementById('btn-restart').click()`);
 await sleep(350);
 const seg = await ev(`[...document.querySelectorAll('#difficulty button')].map(b => ({ label: b.textContent, on: b.getAttribute('aria-checked') === 'true' }))`);
-check('difficulty selector offers all four settings', seg.length === 4, seg.map((s) => s.label).join(','));
+check('difficulty selector offers all six settings', seg.length === 6, seg.map((s) => s.label).join(','));
 check('standard is the default selection', seg.some((s) => s.label === 'Standard' && s.on), JSON.stringify(seg));
 
 await ev(`document.querySelector('#difficulty button.nightmare').click()`);
@@ -187,7 +187,39 @@ check('warm-up boards are simpler and hints are free', warm.attrs <= 3 && warm.h
 await ev(`document.getElementById('btn-hint').click()`);
 const hintCost = await ev(`({ score: window.__IQ_TEST.run().score, hints: document.querySelectorAll('.hint-list li').length })`);
 check('free hints reveal a rule without a score penalty', hintCost.score === 0 && hintCost.hints === 1, JSON.stringify(hintCost));
-await ev(`document.querySelector('#difficulty button.standard').click()`);
+// oblivion: the hardest rung — one attempt, no skip, hard countdown
+await ev(`document.querySelector('#difficulty button.oblivion').click()`);
+await sleep(350);
+const ob = await ev(`({ diff: window.__IQ_TEST.run().difficulty, per: document.getElementById('hud-index').textContent,
+  attrs: window.__IQ_TEST.view.puzzle.attrs.length, tiles: document.querySelectorAll('#tile-layer .tile').length,
+  hint: { off: document.getElementById('btn-hint').disabled, text: document.getElementById('btn-hint').textContent },
+  skip: { off: document.getElementById('btn-skip').disabled, title: document.getElementById('btn-skip').title },
+  clockHidden: document.getElementById('chip-clock').hidden, clock: document.getElementById('hud-clock').textContent,
+  status: document.getElementById('status').textContent.trim() })`);
+check('oblivion runs four boards a level and forbids skipping', ob.diff === 'oblivion' && ob.per === '1/4' && ob.skip.off,
+  JSON.stringify({ per: ob.per, skip: ob.skip }));
+check('oblivion has no hints either', ob.hint.off && ob.hint.text === 'Hints off', JSON.stringify(ob.hint));
+check('oblivion shows a per-board countdown and attempt limit', !ob.clockHidden && /^\d:\d\d$/.test(ob.clock) && /75 seconds, one attempt/.test(ob.status), `${ob.clock} — ${ob.status}`);
+check('oblivion boards carry six attributes and six tiles', ob.attrs === 6 && ob.tiles === 6, `${ob.attrs} attrs / ${ob.tiles} tiles`);
+const beforeFail = await ev('__T.state()');
+await ev('__T.drag(__T.wrongEl(), __T.slot())');
+const afterFail = await ev('__T.state()');
+check('a single wrong tile closes an oblivion board', afterFail.solved && afterFail.score === beforeFail.score && afterFail.nextVisible && /attempt/.test(afterFail.status),
+  afterFail.status);
+check('the closed board reveals the answer and the hidden rules', afterFail.filled >= 1 && (await ev(`document.getElementById('hints').textContent.includes('The hidden rules were')`)),
+  `filled=${afterFail.filled}`);
+await ev(`document.getElementById('btn-next').click()`);
+await sleep(300);
+const ob2 = await ev(`({ per: document.getElementById('hud-index').textContent, level: window.__IQ_TEST.run().level, solved: window.__IQ_TEST.run().solved })`);
+check('next board advances inside the four-board level', ob2.per === '2/4' && ob2.solved === 0, JSON.stringify(ob2));
+await ev(`window.__IQ_TEST.run().deadline = Date.now() + 400`);
+await sleep(1500);
+const expired = await ev('__T.state()');
+check('the countdown closes the board when it runs out', expired.solved && /Out of time/.test(expired.status) && expired.nextVisible, expired.status);
+const failedCount = await ev(`window.__IQ_TEST.run().failed`);
+check('failed boards are counted for the verdict card', failedCount === 2, `failed=${failedCount}`);
+
+await ev(`document.querySelector('#difficulty button[data-diff="standard"]').click()`);
 await sleep(250);
 check('selector state follows the last choice', await ev(`document.querySelector('#difficulty button[data-diff="standard"]').getAttribute('aria-checked') === 'true'`));
 

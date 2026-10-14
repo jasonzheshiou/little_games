@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>形状配对拼图 · SVG 拖拽小游戏</title>
+<style>
+  :root {
+    --bg-a: #eef2f7;
+    --bg-b: #e0e9f5;
+    --ink: #1f2937;
+    --muted: #6b7280;
+    --board: #ffffff;
+    --line: #cbd5e1;
+    --accent: #2563eb;
+    --ok: #16a34a;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    padding: 32px 16px 48px;
+    display: flex;
+    justify-content: center;
+    color: var(--ink);
+    font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background:
+      radial-gradient(1100px 620px at 15% -15%, #ffffff, transparent),
+      linear-gradient(160deg, var(--bg-a), var(--bg-b));
+  }
+
+  .wrap { width: 100%; max-width: 840px; }
+
+  h1 {
+    margin: 0 0 6px;
+    font-size: clamp(22px, 3.4vw, 30px);
+    letter-spacing: .02em;
+  }
+
+  .hint {
+    margin: 0 0 18px;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.8;
+  }
+
+  kbd {
+    padding: 1px 6px;
+    border: 1px solid var(--line);
+    border-bottom-width: 2px;
+    border-radius: 5px;
+    background: #fff;
+    font: inherit;
+    font-size: 12px;
+  }
+
+  .hud {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+
+  .chip {
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .8);
+    border: 1px solid var(--line);
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .chip b { font-weight: 700; }
+  .chip.solved-chip b { color: var(--ok); }
+
+  .hud .spacer { flex: 1 1 auto; }
+
+  button {
+    padding: 8px 16px;
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    background: var(--accent);
+    color: #fff;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: filter .15s ease, transform .1s ease;
+  }
+  button:hover { filter: brightness(1.08); }
+  button:active { transform: translateY(1px); }
+  button:focus-visible { outline: 3px solid #93c5fd; outline-offset: 2px; }
+
+  .board-shell {
+    padding: 10px;
+    background: var(--board);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    box-shadow: 0 24px 48px -28px rgba(15, 23, 42, .38);
+  }
+
+  svg#board {
+    display: block;
+    width: 100%;
+    height: auto;
+    touch-action: none;       /* 触屏拖拽时不滚动页面 */
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  /* ---- 区域 ---- */
+  .zone { fill: #f8fafc; stroke: #e2e8f0; stroke-width: 2; }
+  .zone-label {
+    fill: #94a3b8;
+    font-size: 13px;
+    text-anchor: middle;
+    letter-spacing: .12em;
+  }
+
+  /* ---- 凹槽 ---- */
+  .slot-shape {
+    fill: #f1f5f9;
+    stroke: var(--line);
+    stroke-width: 3;
+    stroke-dasharray: 7 6;
+    transition: fill .2s ease, stroke .2s ease;
+  }
+  .slot.near .slot-shape { fill: #dbeafe; stroke: #60a5fa; stroke-dasharray: 4 4; }
+  .slot.filled .slot-shape {
+    fill: currentColor;
+    fill-opacity: .16;
+    stroke: currentColor;
+    stroke-dasharray: none;
+    stroke-width: 2;
+  }
+
+  /* ---- 可拖拽图形 ---- */
+  .piece {
+    cursor: grab;
+    transform-box: fill-box;      /* 旋转围绕图形自身中心 */
+    transform-origin: center;
+    transition: transform .3s cubic-bezier(.22, 1, .36, 1);
+  }
+  .piece.dragging { cursor: grabbing; transition: none; }
+  .piece.solved { cursor: default; }
+  .piece:focus { outline: none; }
+  .piece:focus-visible .shape {
+    stroke: var(--accent);
+    stroke-width: 3;
+    stroke-dasharray: 5 4;
+  }
+  .shape {
+    stroke: rgba(15, 23, 42, .22);
+    stroke-width: 1.5;
+    filter: url(#shadow);
+  }
+  .holder { transform-box: fill-box; transform-origin: center; }
+  .piece.wrong .holder { animation: shake .34s ease; }
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    22% { transform: translateX(-9px); }
+    46% { transform: translateX(8px); }
+    72% { transform: translateX(-4px); }
+  }
+
+  /* ---- 胜利层 ---- */
+  #win { opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .35s ease, visibility 0s linear .35s; }
+  #win.show { opacity: 1; visibility: visible; pointer-events: auto; transition: opacity .35s ease; }
+  .veil { fill: #0f172a; opacity: .55; }
+  .win-card { transform-box: fill-box; transform-origin: center; transform: scale(.9); transition: transform .4s cubic-bezier(.34, 1.56, .64, 1); }
+  #win.show .win-card { transform: scale(1); }
+  .win-box { fill: #ffffff; stroke: #e2e8f0; stroke-width: 1.5; }
+  .win-title { fill: #0f172a; font-size: 30px; font-weight: 700; text-anchor: middle; }
+  .win-sub { fill: var(--muted); font-size: 15px; text-anchor: middle; }
+  .win-cta { fill: var(--accent); font-size: 14px; font-weight: 600; text-anchor: middle; }
+  .confetti rect {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: fall 1.9s linear infinite;
+  }
+  @keyframes fall {
+    0%   { transform: translateY(-40px) rotate(0deg); opacity: 0; }
+    12%  { opacity: 1; }
+    100% { transform: translateY(500px) rotate(320deg); opacity: .15; }
+  }
+
+  .sr-only {
+    position: absolute; width: 1px; height: 1px;
+    padding: 0; margin: -1px; overflow: hidden;
+    clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: 0s !important; animation: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<main class="wrap">
+  <h1>形状配对拼图</h1>
+  <p class="hint">
+    把左边的彩色图形拖进右边<b>形状相同</b>的虚线凹槽里。
+    也可以用键盘：<kbd>Tab</kbd> 选中图形，<kbd>方向键</kbd> 移动，<kbd>Enter</kbd> 尝试放入。
+  </p>
+
+  <div class="hud">
+    <span class="chip solved-chip">已归位 <b id="progress">0/4</b></span>
+    <span class="chip">用时 <b id="timer">0.0s</b></span>
+    <span class="chip">失误 <b id="misses">0</b></span>
+    <span class="spacer"></span>
+    <button id="reset" type="button">重新开始</button>
+  </div>
+
+  <div class="board-shell">
+    <svg id="board" viewBox="0 0 720 460" role="application" aria-label="形状配对拼图板">
+      <defs>
+        <filter id="shadow" x="-40%" y="-40%" width="180%" height="180%">
+          <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#0f172a" flood-opacity=".22"/>
+        </filter>
+      </defs>
+
+      <g id="zones" aria-hidden="true">
+        <rect class="zone" x="28" y="62" width="262" height="374" rx="14"/>
+        <text class="zone-label" x="159" y="48">待选图形</text>
+        <rect class="zone" x="406" y="62" width="286" height="374" rx="14"/>
+        <text class="zone-label" x="549" y="48">目标凹槽</text>
+      </g>
+
+      <g id="slots"></g>
+      <g id="pieces"></g>
+
+      <g id="win" aria-hidden="true">
+        <rect class="veil" x="0" y="0" width="720" height="460" rx="16"/>
+        <g id="confetti" class="confetti"></g>
+        <g class="win-card">
+          <rect class="win-box" x="200" y="152" width="320" height="152" rx="18"/>
+          <text class="win-title" x="360" y="205">全部归位！🎉</text>
+          <text class="win-sub" id="win-stats" x="360" y="238">用时 0.0s · 失误 0 次</text>
+          <text class="win-cta" x="360" y="276">点击这里再来一局</text>
+        </g>
+      </g>
+    </svg>
+  </div>
+
+  <p class="sr-only" id="live" aria-live="polite"></p>
+  <noscript><p>这个小游戏需要 JavaScript 才能拖拽图形。</p></noscript>
+</main>
+
+<script>
+(() => {
+  'use strict';
+
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const svg = document.getElementById('board');
+  const gSlots = document.getElementById('slots');
+  const gPieces = document.getElementById('pieces');
+  const gConfetti = document.getElementById('confetti');
+  const winLayer = document.getElementById('win');
+  const elProgress = document.getElementById('progress');
+  const elTimer = document.getElementById('timer');
+  const elMisses = document.getElementById('misses');
+  const elWinStats = document.getElementById('win-stats');
+  const elLive = document.getElementById('live');
+
+  const SNAP_TOL = 44;   // 距自己凹槽多远就吸附
+  const WRONG_TOL = 50;  // 落在别人的凹槽附近算失误
+  const BOUNDS = { x1: 34, y1: 34, x2: 686, y2: 426 };
+
+  /* ---------- 几何：图形定义（碎片与凹槽共用，位置永不打架） ---------- */
+  const starPath = (outer = 48, inner = 21, points = 5) => {
+    const pts = [];
+    for (let i = 0; i < points * 2; i++) {
+      const a = -Math.PI / 2 + (i * Math.PI) / points;
+      const r = i % 2 ? inner : outer;
+      pts.push(`${(Math.cos(a) * r).toFixed(1)},${(Math.sin(a) * r).toFixed(1)}`);
+    }
+    return `M${pts.join('L')}Z`;
+  };
+
+  const make = (tag, attrs) => {
+    const n = document.createElementNS(SVG_NS, tag);
+    for (const k in attrs) n.setAttribute(k, attrs[k]);
+    return n;
+  };
+
+  // 每个图形的几何都以 (0,0) 为中心，位置完全由外层 transform 决定
+  const SHAPES = [
+    { id: 'circle',   name: '圆形',   color: '#3b82f6', geo: { tag: 'circle', attrs: { r: 42 } } },
+    { id: 'rect',     name: '长方形', color: '#f97316', geo: { tag: 'rect',   attrs: { x: -50, y: -32, width: 100, height: 64, rx: 9 } } },
+    { id: 'triangle', name: '三角形', color: '#22c55e', geo: { tag: 'polygon', attrs: { points: '0,-46 47,35 -47,35' } } },
+    { id: 'star',     name: '五角星', color: '#eab308', geo: { tag: 'path',   attrs: { d: starPath() } } },
+  ];
+
+  // 落位点留出自定义 bbox（图形半径 + 阴影滤镜外扩）余量，保证不压到分区边框
+  const SLOT_SPOTS = [ { x: 468, y: 128 }, { x: 616, y: 152 }, { x: 496, y: 328 }, { x: 620, y: 334 } ];
+  const HOME_SPOTS = [ { x: 96, y: 128 }, { x: 206, y: 198 }, { x: 104, y: 312 }, { x: 206, y: 372 } ];
+
+  const shuffle = (arr) => {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  };
+  const tilt = () => Math.round((Math.random() * 26 - 13));
+
+  /* ---------- 建盘 ---------- */
+  const pieces = [];  // { shape, el, holder, x, y, rot, home, solved, slot }
+  const slots = [];   // { shape, el, x, y, filled }
+
+  SHAPES.forEach((shape) => {
+    const slotG = make('g', { class: 'slot', transform: 'translate(0,0)' });
+    slotG.style.color = shape.color;
+    slotG.appendChild(make(shape.geo.tag, { ...shape.geo.attrs, class: 'slot-shape' }));
+    gSlots.appendChild(slotG);
+    slots.push({ shape, el: slotG, x: 0, y: 0, filled: false });
+
+    const g = make('g', { class: 'piece', tabindex: '0', role: 'button' });
+    const holder = make('g', { class: 'holder' });
+    holder.appendChild(make(shape.geo.tag, { ...shape.geo.attrs, fill: shape.color, class: 'shape' }));
+    g.appendChild(holder);
+    gPieces.appendChild(g);
+    pieces.push({ shape, el: g, holder, x: 0, y: 0, rot: 0, home: null, solved: false, slot: null });
+  });
+
+  const buildConfetti = () => {
+    const colors = SHAPES.map((s) => s.color).concat('#ffffff', '#60a5fa');
+    for (let i = 0; i < 26; i++) {
+      const r = make('rect', {
+        x: 20 + Math.random() * 680, y: 0,
+        width: 6 + Math.random() * 6, height: 9 + Math.random() * 9, rx: 2,
+        fill: colors[i % colors.length],
+      });
+      r.style.animationDelay = `${(-Math.random() * 1.9).toFixed(2)}s`;
+      gConfetti.appendChild(r);
+    }
+  };
+  buildConfetti();
+
+  /* ---------- 坐标换算 ---------- */
+  const toUser = (evt) => {
+    const m = svg.getScreenCTM();
+    if (!m) return { x: evt.clientX, y: evt.clientY };
+    const inv = m.inverse();
+    if (window.DOMPoint) return new DOMPoint(evt.clientX, evt.clientY).matrixTransform(inv);
+    const p = svg.createSVGPoint();
+    p.x = evt.clientX; p.y = evt.clientY;
+    return p.matrixTransform(inv);
+  };
+
+  const applyTransform = (p) => {
+    p.el.style.transform = `translate(${p.x}px, ${p.y}px) rotate(${p.rot}deg)`;
+  };
+
+  const placeSlot = (slot, x, y) => {
+    slot.x = x; slot.y = y;
+    slot.el.setAttribute('transform', `translate(${x},${y})`);
+  };
+
+  const label = (p) => p.solved
+    ? `${p.shape.name}，已归位`
+    : `${p.shape.name}，未归位，用方向键移动后按回车放入`;
+
+  const refreshAria = (p) => p.el.setAttribute('aria-label', label(p));
+
+  const say = (msg) => { elLive.textContent = msg; };
+
+  /* ---------- 计时 ---------- */
+  let startedAt = null, timerId = null, elapsed = 0;
+  const tick = () => {
+    elapsed = (performance.now() - startedAt) / 1000;
+    elTimer.textContent = `${elapsed.toFixed(1)}s`;
+  };
+  const startTimer = () => {
+    if (startedAt !== null) return;
+    startedAt = performance.now();
+    timerId = setInterval(tick, 100);
+  };
+  const stopTimer = () => {
+    if (timerId) clearInterval(timerId);
+    timerId = null;
+  };
+
+  /* ---------- 状态 ---------- */
+  let misses = 0;
+  let won = false;
+  let drag = null;
+
+  const updateHud = () => {
+    const done = pieces.filter((p) => p.solved).length;
+    elProgress.textContent = `${done}/${pieces.length}`;
+    elMisses.textContent = String(misses);
+  };
+
+  const checkWin = () => {
+    if (won || pieces.some((p) => !p.solved)) return;
+    won = true;
+    stopTimer();
+    tick();
+    elWinStats.textContent = `用时 ${elapsed.toFixed(1)}s · 失误 ${misses} 次`;
+    winLayer.classList.add('show');
+    winLayer.setAttribute('aria-hidden', 'false');
+    say(`拼图完成，用时 ${elapsed.toFixed(1)} 秒，失误 ${misses} 次。`);
+  };
+
+  const snapTo = (p, slot) => {
+    p.solved = true;
+    p.slot = slot;
+    p.x = slot.x; p.y = slot.y; p.rot = 0;
+    slot.filled = true;
+    slot.el.classList.add('filled');
+    slot.el.classList.remove('near');
+    p.el.classList.add('solved');
+    gPieces.insertBefore(p.el, gPieces.firstChild);   // 已归位的沉到底层
+    finishMove(p);
+    refreshAria(p);
+    updateHud();
+    say(`${p.shape.name}已归位。`);
+    checkWin();
+  };
+
+  /* ---------- 拖拽 ---------- */
+  const movePiece = (p, x, y) => {
+    p.x = Math.min(Math.max(x, BOUNDS.x1), BOUNDS.x2);
+    p.y = Math.min(Math.max(y, BOUNDS.y1), BOUNDS.y2);
+    applyTransform(p);
+  };
+
+  const highlightOwnSlot = (p, on) => {
+    const slot = slots.find((s) => s.shape === p.shape);
+    if (slot && !slot.filled) slot.el.classList.toggle('near', on);
+  };
+
+  // 尝试吸附：命中自己的凹槽就归位，落在别人的凹槽算失误并弹回
+  const attemptSnap = (p) => {
+    const own = slots.find((s) => s.shape === p.shape);
+    const ownDist = Math.hypot(p.x - own.x, p.y - own.y);
+    if (ownDist <= SNAP_TOL) { snapTo(p, own); return true; }
+
+    const foreign = slots.find((s) => !s.filled && s.shape !== p.shape && Math.hypot(p.x - s.x, p.y - s.y) <= WRONG_TOL);
+    if (foreign) {
+      misses += 1;
+      updateHud();
+      say(`${p.shape.name}放不进${foreign.shape.name}的凹槽。`);
+      p.el.classList.add('wrong');
+      setTimeout(() => p.el.classList.remove('wrong'), 360);
+    }
+    return false;
+  };
+
+  const endDragCleanup = () => {
+    window.removeEventListener('pointermove', onPointerMove);
+    window.removeEventListener('pointerup', onPointerUp);
+    window.removeEventListener('pointercancel', onPointerUp);
+  };
+
+  const finishMove = (p) => {
+    p.el.classList.remove('dragging');
+    p.el.getBoundingClientRect();       // 强制回流，让 transform 以过渡动画补间
+    applyTransform(p);
+    highlightOwnSlot(p, false);
+  };
+
+  function onPointerMove(evt) {
+    if (!drag) return;
+    evt.preventDefault();
+    const pt = toUser(evt);
+    movePiece(drag.piece, pt.x + drag.dx, pt.y + drag.dy);
+    const own = slots.find((s) => s.shape === drag.piece.shape);
+    highlightOwnSlot(drag.piece, Math.hypot(drag.piece.x - own.x, drag.piece.y - own.y) <= SNAP_TOL);
+  }
+
+  function onPointerUp() {
+    if (!drag) return;
+    const { piece, home } = drag;
+    drag = null;
+    endDragCleanup();
+    if (!attemptSnap(piece)) {
+      piece.x = home.x; piece.y = home.y; piece.rot = home.rot;
+      finishMove(piece);
+    }
+  }
+
+  pieces.forEach((p) => {
+    p.el.addEventListener('pointerdown', (evt) => {
+      if (won || p.solved || drag || evt.button > 0) return;
+      startTimer();
+      evt.preventDefault();
+      const pt = toUser(evt);
+      drag = { piece: p, dx: p.x - pt.x, dy: p.y - pt.y, home: { x: p.home.x, y: p.home.y, rot: p.home.rot } };
+      p.el.classList.add('dragging');
+      try { p.el.focus({ preventScroll: true }); } catch (_) { /* 老浏览器 */ }
+      gPieces.appendChild(p.el);       // 抬到最上层
+      window.addEventListener('pointermove', onPointerMove, { passive: false });
+      window.addEventListener('pointerup', onPointerUp);
+      window.addEventListener('pointercancel', onPointerUp);
+    });
+
+    p.el.addEventListener('keydown', (evt) => {
+      if (won || p.solved) return;
+      const step = evt.shiftKey ? 26 : 9;
+      const keys = {
+        ArrowLeft: [-step, 0], ArrowRight: [step, 0],
+        ArrowUp: [0, -step], ArrowDown: [0, step],
+      };
+      if (keys[evt.key]) {
+        evt.preventDefault();
+        startTimer();
+        movePiece(p, p.x + keys[evt.key][0], p.y + keys[evt.key][1]);
+        const own = slots.find((s) => s.shape === p.shape);
+        highlightOwnSlot(p, !own.filled && Math.hypot(p.x - own.x, p.y - own.y) <= SNAP_TOL);
+      } else if (evt.key === 'Enter' || evt.key === ' ') {
+        evt.preventDefault();
+        startTimer();
+        if (attemptSnap(p)) return;
+        if (p.home) {
+          p.x = p.home.x; p.y = p.home.y; p.rot = p.home.rot; applyTransform(p);
+          say(`${p.shape.name}离凹槽还太远，已退回原位。`);
+        }
+      } else if (evt.key === 'Escape') {
+        p.x = p.home.x; p.y = p.home.y; p.rot = p.home.rot; applyTransform(p);
+        say(`${p.shape.name}已退回原位。`);
+      }
+    });
+
+    // 空格默认会滚动页面，交给 keydown 处理
+    p.el.addEventListener('keyup', (evt) => { if (evt.key === ' ') evt.preventDefault(); });
+  });
+
+  /* ---------- 重置 ---------- */
+  const reset = () => {
+    won = false;
+    misses = 0;
+    stopTimer();
+    startedAt = null;
+    elapsed = 0;
+    drag = null;
+    endDragCleanup();
+    winLayer.classList.remove('show');
+    winLayer.setAttribute('aria-hidden', 'true');
+    elTimer.textContent = '0.0s';
+
+    const slotOrder = shuffle(SLOT_SPOTS);
+    const homeOrder = shuffle(HOME_SPOTS);
+    slots.forEach((s, i) => {
+      placeSlot(s, slotOrder[i].x, slotOrder[i].y);
+      s.filled = false;
+      s.el.classList.remove('filled', 'near');
+    });
+    pieces.forEach((p, i) => {
+      p.solved = false;
+      p.slot = null;
+      p.home = { x: homeOrder[i].x, y: homeOrder[i].y, rot: tilt() };
+      p.x = p.home.x; p.y = p.home.y; p.rot = p.home.rot;
+      p.el.classList.remove('solved', 'dragging', 'wrong');
+      applyTransform(p);
+      refreshAria(p);
+    });
+    updateHud();
+    say('新的一局，开始吧。');
+  };
+
+  document.getElementById('reset').addEventListener('click', reset);
+  winLayer.addEventListener('click', reset);
+
+  reset();
+})();
+</script>
+</body>
+</html>
